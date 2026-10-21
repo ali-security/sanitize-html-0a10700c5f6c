@@ -281,6 +281,38 @@ describe('sanitizeHtml', function() {
         }
       ),
       ''
-    )
+    );
+  });
+  it('should not be faked out by double <', function() {
+    assert.equal(
+      sanitizeHtml('<<img src="javascript:evil"/>img src="javascript:evil"/>'
+      ),
+      ''
+    );
+    // I don't love what I get back here obviously, but
+    // it is not an attack vector, although it might be parsed
+    // by some browsers as containing an unbalanced close tag.
+    assert.equal(
+      sanitizeHtml('<<a href="javascript:evil"/>a href="javascript:evil"/>'
+      ),
+      '<<a>a href="javascript:evil"/></a>'
+    );
+    // No emitted tag may carry the javascript: href
+    assert.ok(!/<a[^>]*href=/.test(
+      sanitizeHtml('<<a href="javascript:evil"/>a href="javascript:evil"/>')
+    ));
+  });
+  it('should not be faked out by multiple levels of nested <', function() {
+    // Each pass peels off one level; a single re-sanitize is not enough
+    assert.equal(
+      sanitizeHtml('<<<img src="javascript:evil"/>img src="javascript:evil"/>img src="javascript:evil"/>'
+      ),
+      ''
+    );
+  });
+  it('should not be faked out by double < reassembling a script tag', function() {
+    var result = sanitizeHtml('<<x>script>alert(1)<<x>/script>');
+    assert.equal(result, '');
+    assert.ok(!/<script/i.test(result));
   });
 });
