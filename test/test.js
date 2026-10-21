@@ -58,6 +58,12 @@ describe('sanitizeHtml', function() {
   it('should dump a javascript URL with a comment in the middle (probably only respected by browsers in XML data islands, but just in case someone enables those)', function() {
     assert.equal(sanitizeHtml('<a href="java<!-- -->script:alert(\'foo\')">Hax</a>'), '<a>Hax</a>');
   });
+  it('should dump a javascript URL with control characters after the first run', function() {
+    assert.equal(sanitizeHtml('<a href="\x01\x02java\tscript:alert(1)">Hax</a>'), '<a>Hax</a>');
+  });
+  it('should dump a javascript URL split by several encoded control characters', function() {
+    assert.equal(sanitizeHtml('<a href="java&#9;scr&#10;ipt:alert(1)">Hax</a>'), '<a>Hax</a>');
+  });
   it('should not mess up a hashcode with a : in it', function() {
     assert.equal(sanitizeHtml('<a href="awesome.html#this:stuff">Hi</a>'), '<a href="awesome.html#this:stuff">Hi</a>');
   });
