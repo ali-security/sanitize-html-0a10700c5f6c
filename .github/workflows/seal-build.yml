@@ -1,0 +1,71 @@
+# Authored for the sealed build: upstream sanitize-html 1.4.2 ships no CI config
+# at all, so this workflow reproduces the project's own commands from package.json
+# (`npm test` = `mocha test/test.js`, then `npm pack`) on the release-era toolchain:
+# Node 0.10.28, which bundles npm 1.4.9 — the npm that packed the public tarball.
+name: seal-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Mocha --grep pattern; empty runs the full suite"
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Modern Node only resolves dependencies (npm 1.4.9 on Node 0.10 cannot
+      # negotiate with today's registry TLS); everything below runs on Node 0.10.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (registry pinned to the 1.4.2 release date)
+        run: |
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken=2014-09-26T00:34:02.385000Z
+          # mocha is not declared in package.json; `npm test` expects it on PATH.
+          npm install --no-save --no-package-lock mocha@1.21.x
+          ls node_modules
+
+      - name: Install Node 0.10.28 (bundles npm 1.4.9)
+        run: |
+          curl -fsSL https://nodejs.org/dist/v0.10.28/node-v0.10.28-linux-x64.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v0.10.28-linux-x64/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain
+        run: |
+          which node npm
+          node -v
+          npm -v
+
+      - name: Test
+        env:
+          TEST_FILTER: ${{ inputs.test-filter }}
+        run: |
+          if [ -n "$TEST_FILTER" ]; then
+            ./node_modules/.bin/mocha --reporter spec --grep "$TEST_FILTER" test/test.js
+          else
+            npm test
+          fi
+
+      - name: Pack
+        run: |
+          # Keep this authored workflow out of the tarball; npm 1.4.9 packs via
+          # .gitignore (renamed to .npmignore in the tarball, as upstream's was).
+          rm -rf .github
+          npm pack
+          mkdir -p dist
+          mv sanitize-html-1.4.2.tgz dist/
+          tar tzvf dist/sanitize-html-1.4.2.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sanitize-html-tgz
+          path: dist/sanitize-html-1.4.2.tgz
+          if-no-files-found: error
