@@ -315,4 +315,36 @@ describe('sanitizeHtml', function() {
     assert.equal(result, '');
     assert.ok(!/<script/i.test(result));
   });
+  it('should not be vulnerable to ReDoS via many unterminated <!-- in an href', function() {
+    // Many comment openers with no closer made the old /<!--.*?-->/g
+    // replacement in naughtyHref run in quadratic time
+    var payload = new Array(50001).join('<!--');
+    var input = '<a href="' + payload + '">x</a>';
+    var start = Date.now();
+    var result = sanitizeHtml(input);
+    var elapsed = Date.now() - start;
+    assert.equal(result, input);
+    assert.ok(elapsed < 1000, 'sanitizeHtml took ' + elapsed + 'ms');
+  });
+  it('should not be vulnerable to ReDoS via many unterminated <!-- in an img src', function() {
+    var payload = new Array(50001).join('<!--');
+    var input = '<img src="' + payload + '" />';
+    var start = Date.now();
+    var result = sanitizeHtml(input, { allowedTags: [ 'img' ] });
+    var elapsed = Date.now() - start;
+    assert.equal(result, input);
+    assert.ok(elapsed < 1000, 'sanitizeHtml took ' + elapsed + 'ms');
+  });
+  it('should still strip comments hiding a javascript URL after many <!-- openers', function() {
+    var payload = new Array(50001).join('<!--');
+    var start = Date.now();
+    var result = sanitizeHtml('<a href="' + payload + '-->javascript:alert(1)">Hax</a>');
+    var elapsed = Date.now() - start;
+    assert.equal(result, '<a>Hax</a>');
+    assert.ok(elapsed < 1000, 'sanitizeHtml took ' + elapsed + 'ms');
+  });
+  it('should strip several comments splitting a javascript URL', function() {
+    assert.equal(sanitizeHtml('<a href="ja<!-- a -->va<!-- b -->script:alert(1)">Hax</a>'), '<a>Hax</a>');
+    assert.equal(sanitizeHtml('<img src="java<!-- -->script:alert(1)" />', { allowedTags: [ 'img' ] }), '<img />');
+  });
 });
