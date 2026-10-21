@@ -127,6 +127,13 @@ function sanitizeHtml(html, options, _recursing) {
                 return;
               }
             }
+            // `<meta http-equiv="refresh" content="0;url=...">` navigates to a
+            // URL embedded in `content`, so scheme check that URL too
+            // (GHSA-cv27-6wvh-8x7j). Other meta `content` values are left alone.
+            if (name === 'meta' && a.toLowerCase() === 'content' && isRefresh(attribs) && naughtyRefresh(value)) {
+              delete frame.attribs[a];
+              return;
+            }
             if (a === 'class') {
               value = filterClasses(value, allowedClassesMap[name]);
               if (!value.length) {
@@ -255,6 +262,88 @@ function sanitizeHtml(html, options, _recursing) {
     }
     var scheme = matches[1].toLowerCase();
     return (!_.contains(options.allowedSchemes, scheme));
+  }
+
+  function isRefresh(attribs) {
+    return _.some(_.keys(attribs), function(a) {
+      return a.toLowerCase() === 'http-equiv' &&
+        String(attribs[a]).trim().toLowerCase() === 'refresh';
+    });
+  }
+
+  // True if the `content` of a `<meta http-equiv="refresh">` must be dropped:
+  // its destination URL fails the scheme policy, or it cannot be parsed as a
+  // refresh at all (a browser would ignore it then, so nothing is lost).
+  // Extracts the URL the way the HTML standard's "shared declarative refresh
+  // steps" do, so that spelling, separator, quoting and case variations of
+  // `url=`, or no `url=` at all, all yield the URL a browser would navigate to.
+  function naughtyRefresh(content) {
+    // Attribute values are still entity-encoded here, so decode them the way
+    // the browser will before reading the URL out of them
+    var input = he.decode(String(content));
+    var isWhitespace = function(c) {
+      return c === ' ' || c === '\t' || c === '\n' || c === '\f' || c === '\r';
+    };
+    var position = 0;
+    var skipWhitespace = function() {
+      while (position < input.length && isWhitespace(input.charAt(position))) {
+        position++;
+      }
+    };
+    var lowerAt = function(i) {
+      return input.charAt(i).toLowerCase();
+    };
+    skipWhitespace();
+    var timeStart = position;
+    while (position < input.length && /[0-9.]/.test(input.charAt(position))) {
+      position++;
+    }
+    if (position === timeStart) {
+      return true;
+    }
+    if (position < input.length) {
+      var c = input.charAt(position);
+      if (c !== ';' && c !== ',' && !isWhitespace(c)) {
+        return true;
+      }
+      skipWhitespace();
+      if (input.charAt(position) === ';' || input.charAt(position) === ',') {
+        position++;
+      }
+      skipWhitespace();
+    }
+    if (position >= input.length) {
+      // No URL: refreshes the current document
+      return false;
+    }
+    var url = input.slice(position);
+    var quoted = true;
+    if (lowerAt(position) === 'u') {
+      quoted = false;
+      if (lowerAt(position + 1) === 'r' && lowerAt(position + 2) === 'l') {
+        position += 3;
+        skipWhitespace();
+        if (input.charAt(position) === '=') {
+          position++;
+          skipWhitespace();
+          quoted = true;
+        }
+      }
+    }
+    if (quoted) {
+      var quote = input.charAt(position);
+      if (quote === '"' || quote === '\'') {
+        position++;
+      }
+      url = input.slice(position);
+      if (quote === '"' || quote === '\'') {
+        var end = url.indexOf(quote);
+        if (end !== -1) {
+          url = url.slice(0, end);
+        }
+      }
+    }
+    return naughtyHref(url);
   }
 
   function filterClasses(classes, allowed) {
